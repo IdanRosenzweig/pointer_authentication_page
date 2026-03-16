@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style type="text/css">
+        /* Modern Layout Reset */
+        body {
+            font-family: "Arial", sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 40px 20px;
+            color: #000000;
+            line-height: 1.5;
+        }
+
+        .doc-content {
+            background-color: #ffffff;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 72pt;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-radius: 4px;
+        }
+
+        /* Table of Contents Specific Styles */
+        .toc-section {
+            background-color: #fcfcfc;
+            padding: 15pt;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-bottom: 20pt;
+        }
+        .toc-link { color: #1155cc; text-decoration: underline; font-size: 11pt; display: block; margin-bottom: 4pt; }
+        .toc-indent { margin-left: 18pt; }
+        .toc-double-indent { margin-left: 36pt; }
+
+        /* Restoration of original style logic */
+        .title { font-size: 26pt; font-weight: 400; color: #000000; margin-bottom: 3pt; text-align: left; }
+        .subtitle { font-size: 15pt; color: #666666; margin-bottom: 16pt; text-align: left; }
+        
+        h1 { font-size: 20pt; color: #000000; border-bottom: 1px solid #eee; padding-top: 20pt; padding-bottom: 6pt; margin-bottom: 12pt; scroll-margin-top: 20px; }
+        h2 { font-size: 16pt; color: #000000; padding-top: 18pt; padding-bottom: 6pt; scroll-margin-top: 20px; }
+        h3 { font-size: 14pt; color: #434343; padding-top: 16pt; padding-bottom: 4pt; scroll-margin-top: 20px; }
+        
+        p { margin: 10pt 0 0pt 0; font-size: 11pt; }
+        
+        /* Table Styling for Assembly Blocks */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0pt 0 0pt;
+            background-color: #f8f9fa;
+            border-left: 4px solid #2563eb;
+        }
+        
+        .c14 {
+            padding: 12pt;
+            border: 1px solid #e1e4e8;
+            font-family: "Consolas", monospace;
+        }
+
+        /* Image Handling */
+        img {
+            max-width: 100%;
+            display: block;
+            margin: 20pt auto;
+            border: 1px solid #ddd;
+        }
+
+        /* List Styling */
+        ul { padding-left: 36pt; margin-bottom: 11pt; list-style-type: disc; }
+        li { margin-bottom: 4pt; font-size: 11pt; }
+
+        /* Preservation of original color classes */
+        .c15 { color: #00b0e8; } /* Instructions */
+        .c19 { color: #008000; } /* Comments */
+        .c18 { font-weight: 700; }
+        .c9 { color: #1155cc; text-decoration: underline; }
+        
+        /* Links */
+        a { color: inherit; text-decoration: inherit; }
+    </style>
+</head>
+
+<body class="doc-content">
+    <p class="title">Pointer Authentication</p>
+    <p class="subtitle">By Idan Rosenzweig</p>
+    
+    <div class="toc-section">
+        <h1 style="border:none; padding-top:0;">Table of contents</h1>
+        <a class="toc-link" href="#introduction">Introduction</a>
+        <a class="toc-link" href="#theory">Pointer Authentication theory</a>
+        <a class="toc-link" href="#implementations">Pointer Authentication implementations</a>
+        <a class="toc-link toc-indent" href="#arm-arch">ARM arch</a>
+        <a class="toc-link toc-indent" href="#software-based">Software based</a>
+        <a class="toc-link" href="#code-samples">Pointer Authentication code samples</a>
+        <a class="toc-link toc-indent" href="#arm-code-samples">ARM arch</a>
+        <a class="toc-link toc-double-indent" href="#stack-protection">Call stack return address protection</a>
+        <a class="toc-link toc-double-indent" href="#callback-protection">Function callback protection</a>
+        <a class="toc-link toc-double-indent" href="#setjmp-protection">setjmp/longjmp protection</a>
+        <a class="toc-link" href="#real-life">Pointer Authentication in real life</a>
+        <a class="toc-link" href="#attacks">Attacks on Pointer Authentication</a>
+        <a class="toc-link toc-indent" href="#substitution-attacks">Substitution attacks</a>
+        <a class="toc-link toc-indent" href="#signing-oracles">Signing/conversion oracles</a>
+        <a class="toc-link toc-indent" href="#auth-oracles">Authentication oracles</a>
+        <a class="toc-link" href="#vulnerabilities">Real vulnerabilities examples</a>
+        <a class="toc-link toc-indent" href="#pacman">PACMAN</a>
+        <a class="toc-link toc-indent" href="#cve-2025">CVE-2025-31201</a>
+        <a class="toc-link toc-indent" href="#misc">Misc</a>
+        <a class="toc-link" href="#summary">Summary</a>
+        <a class="toc-link" href="#challenges">Pointer Authentication practice challenges</a>
+        <a class="toc-link" href="#related-sources">Related sources</a>
+    </div>
+
+    <h1 id="introduction">Introduction</h1>
+    <p>Memory corruption vulnerabilities remain one of the most prevalent and dangerous
+            classes of software security issues, enabling attackers to forge or substitute pointers and hijack control
+            flow through techniques such as Return-Oriented Programming (ROP), Jump-Oriented Programming (JOP), or
+            arbitrary code execution. Traditional defenses&mdash;including Address Space Layout Randomization (ASLR),
+            stack canaries, and Data Execution Prevention (DEP)&mdash;provide valuable protection but often fall short
+            against sophisticated attackers who can leak addresses, chain gadgets, or exploit similar tactics.</p>
+    
+    <p>Pointer Authentication offers a cryptographically grounded countermeasure
+            specifically designed to mitigate pointer forgery and corruption. This paper explores the theoretical
+            foundations of Pointer Authentication, its concrete implementation in the ARM architecture, practical
+            examples, real-world vulnerabilities and attacks, and more.</p>
+    
+    <h1 id="theory">Pointer Authentication theory</h1>
+    <p>The fundamental concept of <span class="c18">Pointer Authentication
+            (PA)</span>&nbsp;is to add cryptographic authentication to pointers to mitigate forgery and
+            corruption. It works by associating a pointer with an <span class="c18">authentication tag (or
+            signature)</span>, which will be validated before using the pointer.</p>
+    
+    <p>The process of computing the tag is often called <span class="c18">signing</span>,
+            and the opposite process of validating the tag is often called <span
+            class="c18">authenticating</span>.</p>
+    
+    <p>The cryptographic authentication mechanism and associated keys utilized to sign and authenticate
+            tags are collectively referred to as the <span class="c18">signing scheme</span>.
+            The signing scheme must satisfy the following security objectives:</p>
+    <ul>
+        <li>Forgery prevention: the signing scheme must prevent attackers
+                from computing valid tags for arbitrary pointers.</li>
+        <li>Resilience to known plaintext attacks: access to a large set of
+                valid signed pointers should not allow an attacker to derive any internal secret keys or predict tags
+                for new pointers.</li>
+        <li>Substitution attacks prevention: the signing scheme must prevent
+                attackers from substituting valid signed pointers with each other.</li>
+    </ul>
+    
+    <p>To achieve these security goals, the signing scheme uses a strong authentication
+            algorithm, and computes each tag using a combination of various inputs available to both the signing and
+            authenticating sides. Certain inputs are selected for their resistance to leakage or prediction, thereby
+            strengthening protection against forgery, while others are selected purely for diversification to prevent
+            substitution attacks.</p>
+    <ul>
+        <li>An unknown (secret) random global key</li>
+        <li>The address where the pointer resides in memory</li>
+        <li>The address where the pointer points to (the pointer&rsquo;s
+                value)</li>
+        <li>The stack pointer value</li>
+        <li>The pointer&rsquo;s type</li>
+        <li>The pointer&rsquo;s vtable index</li>
+        <li>The pointer&rsquo;s function/member declaration/name</li>
+        <li>Some constant value</li>
+    </ul>
+    <p>(notice that not all inputs are relevant in all use cases, these are just
+            examples)</p>
+    
+    <p>Ideally, each individual pointer use case should have a completely unique signing
+            scheme associated with it, to isolate different use cases entirely, and better prevent substitution
+            attacks.</p>
+    
+    <p>It is better to utilize the inputs which an attacker can&rsquo;t leak or easily
+            guess, depending on the use case. The more diversified a signing scheme is (the more inputs it uses), the
+            better it is against signing forgery, as there are more inputs an attacker has to leak or guess.</p>
+    
+    <h1 id="implementations">Pointer Authentication implementations</h1>
+    <h2 id="arm-arch">ARM arch</h2>
+    <p>ARM first introduced Pointer Authentication in 2016 in the ARMv8.3-A architecture. It is called
+        <span class="c18">Pointer Authentication Code (PAC)</span>. That and all later versions
+            as well implement PAC.</p>
+    
+    <p>In the ARM arch, each tag is computed using an implementation-specific algorithm that
+            takes:</p>
+    <ul>
+        <li>The pointer value.</li>
+        <li>Any one of the global keys: there are 5 global keys which are
+                secretly stored and configured by higher privileged modes. They are:
+            <ul>
+                <li>Instruction key A (called IA key)</li>
+                <li>Instruction key B (called IB key)</li>
+                <li>Data key A (called DA key)</li>
+                <li>Data key B (called DB key)</li>
+                <li>General key</li>
+            </ul>
+        </li>
+        <li>Context value (also called modifier): can be any value that you want. This
+                value is often composed from a combination of multiple inputs, as listed in <a
+                    class="c9" href="#theory">Pointer Authentication theory</a>&nbsp;(besides the global key, which is already embedded within the computation).</li>
+    </ul>
+    
+    <p>Here is a small diagram that shows how the tag is computed</p>
+    <img alt="" src="images/image2.png">
+    
+    <p>The tag value is stored at an unused part of the pointer word (the high order bits).
+            The reason there is an unused part in each pointer word is because the value of pointers is limited to the
+            actual size of the RAM on the system, which is often smaller than the maximum size a pointer word supports
+            (thus leaving an unused part in each pointer word). This also means that the tag value can have a different
+            size on different systems.</p>
+    
+    <p>This is the structure of a pointer word on a system with pointer value restricted to
+            48 bits, with tagging enabled as well. The tag has a size of 7 bits.</p>
+    <img alt="" src="images/image5.png">
+    
+    <p>This is the structure of a pointer word on a system with pointer value restricted to
+            48 bits, without tagging. The tag has a size of 15 bits.</p>
+    <img alt="" src="images/image3.png">
+    
+    <br>
+
+    <p>Some of the instructions in ARM related to PAC:</p>
+    
+    <p><span class="c18">Instructions used to sign pointers</span>. They compute the tag
+            based on the given arguments, and store it in the unused part of the pointer word.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PAC</span>*
+            </td>
+        </tr>
+    </table>
+    <img alt="" src="images/image1.png">
+    
+    <p>Sign the pointer in register Xd with the key IA or IB, with the context value in
+            register Xn</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PACIA</span>&nbsp;Xd, Xn<br>
+                <span class="c15">PACIB</span>&nbsp;Xd, Xn
+            </td>
+        </tr>
+    </table>
+    
+    <p>Sign the pointer in register Xd with the key IA or IB, with the context value
+            0</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PACIZA</span>&nbsp;Xd<br>
+                <span class="c15">PACIZB</span>&nbsp;Xd
+            </td>
+        </tr>
+    </table>
+    
+    <p>Sign the pointer in register x17 with the key IA or IB, with the context value in
+            register x16.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PACIA1716</span><br>
+                <span class="c15">PACIB1716</span>
+            </td>
+        </tr>
+    </table>
+    
+    <p>Sign the pointer in register x30 (the link register) with the key IA or IB, with the
+            context value in register sp (the stack pointer).</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PACIASP</span><br>
+                <span class="c15">PACIBSP</span>
+            </td>
+        </tr>
+    </table>
+    
+    <p>Sign the pointer in register x30 (the link register) with the key IA or IB, with the
+            context value 0.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">PACIAZ</span><br>
+                <span class="c15">PACIBZ</span>
+            </td>
+        </tr>
+    </table>
+    
+    <br>
+
+    <p><span class="c18">Instructions are used to authenticate pointers</span>. They verify
+            the tag stored in the unused part of the pointer word. If authentication succeeds, the tag is removed from
+            the unsed part of the pointer word; if it fails, the instruction corrupts the pointer (corrupts the unuse
+            part of the pointer word) so that any subsequent use is invalid.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUT</span>*
+            </td>
+        </tr>
+    </table>
+    <img alt="" src="images/image6.png">
+    
+    <p>Authenticate the pointer in register Xd with the key IA or IB, with the context value
+            in register Xn.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUTIA</span>&nbsp;Xd, Xn<br>
+                <span class="c15">AUTIB</span>&nbsp;Xd, Xn
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register Xd with the key IA or IB, with the context value
+            0.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUTIZA</span>&nbsp;Xd<br>
+                <span class="c15">AUTIZB</span>&nbsp;Xd
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register x17 with the key IA or IB, with the context
+            value in register x16.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUTIA1716</span><br>
+                <span class="c15">AUTIB1716</span>
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register x30 (the link register) with the key IA or IB,
+            with the context value in register sp (the stack pointer).</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUTIASP</span><br>
+                <span class="c15">AUTIBSP</span>
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register x30 (the link register) with the key IA or IB,
+            with the context value 0.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">AUTIAZ</span><br>
+                <span class="c15">AUTIBZ</span>
+            </td>
+        </tr>
+    </table>
+    
+    <br>
+
+    <p><span class="c18">Instructions used to remove the tag from the unused part of the pointer word
+            without performing authentication.</span></p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">XPAC</span>*
+            </td>
+        </tr>
+    </table>
+    <img alt="" src="images/image4.png">
+    
+    <p>Remove the tag from the (instruction) pointer in register Xd.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">XPACI</span>&nbsp;Xd
+            </td>
+        </tr>
+    </table>
+    
+    <p>Remove the tag from the (data) pointer in register Xd.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">XPACD</span>&nbsp;Xd
+            </td>
+        </tr>
+    </table>
+    
+    <p>Remove the tag from the pointer in register x30 (the link register).</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">XPACLRI</span>
+            </td>
+        </tr>
+    </table>
+
+    <br>
+    
+    <p><span class="c18">Combined instructions to both authenticate and branch to a pointer.</span></p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">BLRA</span>*<br>
+                <span class="c15">BRA</span>*
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register Xn with the key IA or IB, with the context value in
+            register Xm. Then branch to that address.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">BRAA </span>Xn, Xm<br>
+                <span class="c15">BRAB </span>Xn, Xm
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register Xn with the key IA or IB, with the context value
+            in register Xm. Then branch with link to that address.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">BLRAA </span>Xn, Xm<br>
+                <span class="c15">BLRAB </span>Xn, Xm
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register Xn with the key IA or IB, with the context value
+            0. Then branch to that address. Then branch to that address.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">BRAAZ </span>Xn<br>
+                <span class="c15">BRABZ </span>Xn
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register Xn with the key IA or IB, with the context value
+            0. Then branch to that address. Then branch with link to that address.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">BLRAAZ </span>Xn<br>
+                <span class="c15">BLRABZ </span>Xn
+            </td>
+        </tr>
+    </table>
+    
+    <br>
+    
+    <p><span class="c18">Combined instructions to both authenticate and return.</span></p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">RETA</span>*
+            </td>
+        </tr>
+    </table>
+    
+    <p>Authenticate the pointer in register x30 (the link register) with the key IA or IB, with the
+            context value in register sp (the stack pointer). Then return normally.</p>
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">RETAA</span><br>
+                <span class="c15">RETAB</span>
+            </td>
+        </tr>
+    </table>
+    
+    <br>
+
+    <p>Apple first integrated the ARMv8.3-A arch in its Apple Silicon processors in around
+            2018.</p>
+    <ul>
+        <li>A-Series: every chip from the A12 onwards supports ARMv8.3-A (at
+                least).</li>
+        <li>M-Series: every chip in this series supports ARMv8.3-A (at
+                least).</li>
+        <li>S-Series: every chip from the S4 onwards supports ARMv8.3-A (at
+                least).</li>
+    </ul>
+    
+    <p>Their PAC implementation uses a custom version of the QARMA block cipher as the base
+            algorithm.</p>
+    
+    <h2 id="software-based">Software based</h2>
+    <p>While not very common, it is entirely possible to implement Pointer Authentication in
+            software. Instead of dedicated hardware-level instructions, signing and authenticating is implemented as
+            small stubs or inline functions.</p>
+    
+    <h1 id="code-samples">Pointer Authentication code samples</h1>
+    <h2 id="arm-code-samples">ARM arch</h2>
+    <h3 id="stack-protection">Call stack return address protection</h3>
+    <p>We want to protect the call stack return address. We would sign the return address
+            upon function entry and authenticate it upon function exit.</p>
+    <p>There are multiple possible inputs which are available both when entering the
+            function and when exiting the function:</p>
+    <ul>
+        <li>The stack pointer: this value is the same when entering the
+                function and exiting from the function</li>
+        <li>The frame pointer: this value is fixed along throughout the
+                execution of the function</li>
+        <li>The previous frame pointer: this value is fixed along throughout
+                the execution of the function</li>
+    </ul>
+    
+    <p>In a typical call stack implementation in ARM, the return address is signed based on
+            the secret key IB and the stack pointer.</p>
+    
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c19">; prologue</span><br>
+                <span class="c15">PACIBSP</span>&nbsp;<span class="c19">; sign the pointer in
+                        register x30 (the link register) with the key IB, with the context value in register sp (the
+                        stack pointer)</span><br>
+                <span class="c15">STP</span>&nbsp;X29, X30, [<span class="c15">SP</span>, #-16]!
+                    <span class="c19">; push the previous function frame pointer and the current link register to
+                        the stack</span><br>
+                <span class="c15">MOV </span>X29,
+                    <span class="c15">SP</span>&nbsp;<span class="c19">; setup the frame
+                        pointer for the current function</span><br><br>
+                <span class="c19">; ...
+                        function body ...</span><br><br>
+                <span class="c19">; epilogue</span><br>
+                <span class="c15">LDP</span>&nbsp;X29, X30, [<span
+                        class="c15">SP</span>], #16 <span class="c19">; restore the previous
+                        function frame pointer and the current link register from the stack</span><br>
+                <span class="c15">AUTIBSP</span>&nbsp;<span
+                        class="c19">; authenticate the pointer in register x30 (the link register) with the key IB, with
+                        the context value in register sp (the stack pointer).</span><br>
+                <span class="c15">RET</span>&nbsp;<span class="c19">; return to the pointer in
+                        register x30 (the link register)</span>
+            </td>
+        </tr>
+    </table>
+    
+    <h3 id="callback-protection">Function callback protection</h3>
+    <p>We want to protect function callback pointers. We would sign the callback pointer
+            when registering (storing) it, and authenticate it before executing it.</p>
+    <p>There aren&rsquo;t many possible inputs available for both the signing and the
+            authenticating sides. If the callback pointer is stored in a global variable or equivalent global scope, it
+            may be possible to use its address as an input.</p>
+    
+    <p>In a simple function callback implementation in ARM, the callback pointer is signed
+            based on the secret key IA and some constant value.</p>
+    
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c15">LDR </span>X17, [X19, #0x88] &nbsp; <span
+                        class="c19">; load the signed callback ptr</span><br>
+                <span class="c19">;
+                        authenticate the signed callback with the key IA, combined with a constant value, and then
+                        branch with link</span><br>
+                <span class="c15">MOV </span>X16, #0xAF32<br>
+                <span class="c15">BLRAA </span>X17,
+                        X16
+            </td>
+        </tr>
+    </table>
+    
+    <h3 id="setjmp-protection">setjmp/longjmp protection</h3>
+    <p>We want to protect the goto address in a setjmp/longjmp setup. We would sign the goto
+            address when creating the jmp object (in setjmp), and authenticate it when jumping to it (in
+            longjmp).</p>
+    <p>There is plenty of inputs available both when creating the jmp object and when using
+            it (in general, all the metadata in the jmp object):</p>
+    <ul>
+        <li>The stack pointer</li>
+        <li>Register values</li>
+        <li>Additional process/thread info</li>
+    </ul>
+    
+    <p>In a typical setjmp/longjmp implementation in ARM, the goto address is signed based
+            on the secret key IA and the stack pointer.</p>
+    
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c19">; setjmp</span><br>
+                <span class="c15">MOV
+                    </span>X0, <span class="c15">SP</span><br>
+                <span class="c15">PACIA</span>&nbsp;X30, X0 <span class="c19">; sign the
+                        return address (for the setjmp) with the key IA, with the context value in register
+                        x0</span><br>
+                <span class="c15">STR </span>X30, [X1, #0]
+                    <span class="c19">; save the signed return address to the setjmp obj</span><br>
+                <span class="c15">STR </span>X0, [X1, #8] <span
+                        class="c19">; save the sp itself to the setjmp obj</span><br>
+                <span class="c19">; ... rest of setjmp store ...</span>
+            </td>
+        </tr>
+    </table>
+    
+    <table>
+        <tr>
+            <td class="c14">
+                <span class="c19">; longjmp</span><br>
+                <span class="c15">LDR
+                    </span>X30, [X1, #0] <span class="c19">; load the saved return
+                        address</span><br>
+                <span class="c15">LDR </span>&nbsp;X0, [X1, #8] <span class="c19">; load the saved stack
+                        pointer</span><br>
+                <span class="c15">AUTIA</span>&nbsp;X30, X0 <span class="c19">; authenticate the return address with the key
+                        IA, with the context value in register x0</span><br>
+                <span class="c15">MOV SP</span>, X0 <span class="c19">; restore the stack
+                        pointer</span><br>
+                <span class="c19">; ... rest of longjmp restore
+                        ...</span><br>
+                <span class="c15">RET</span>&nbsp;X30
+                    <span class="c19">; branch back to the return address</span>
+            </td>
+        </tr>
+    </table>
+    
+    <h1 id="real-life">Pointer Authentication in real life</h1>
+    <p>Imagine a roller coaster park, where in addition to the regular ticket, you can also
+            purchase a vip ticket. The vip ticket works as follow:</p>
+    <ul>
+        <li>You can go to the entry of an attraction. The ticketer writes a
+                label on a note that you are eligible to go to this attraction at a certain target time in the future
+                (or later) and enter immediately, without having to wait in line. The label contains:
+            <ul>
+                <li>The attraction name</li>
+                <li>The target time</li>
+                <li>A unique attraction signature, partly invisible, non
+                        forgeable</li>
+                <li>The count of your daily attractions (incremented for the next
+                        label)</li>
+                <li>A label checksum (over everything in the label)</li>
+            </ul>
+        </li>
+        <li>When you go to the attraction, the cashier recalculates a
+                checksum over the label. If the label is successfully authenticated, and the target time is valid, the
+                cashier realizes the label (destroys it), and allows you into the attraction.</li>
+        <li>You can, of course, go to the attraction earlier and cancel the
+                label.</li>
+        <li>You are only allowed to use the label for the same attraction you
+                registered for.</li>
+        <li>You can&rsquo;t register multiple labels at the same time, only a
+                single label at a time.</li>
+        <li>No restriction on the total number of labels you registered
+                throughout the day.</li>
+    </ul>
+    
+    <p>We can think of this model as signed pointers to attractions. You can&rsquo;t simply
+            forge a pointer, because you can&rsquo;t forge the attraction signatures. You also can&rsquo;t modify
+            existing labels or substitute parts of labels, because you can&rsquo;t calculate the checksum (you
+            don&rsquo;t know the attraction signature).</p>
+    
+    <p>This imaginary model is very similar to Disneyland vip tickets.</p>
+    
+    <h1 id="attacks">Attacks on Pointer Authentication</h1>
+    <p>At its core, Pointer Authentication is just cryptographic authentication. In some
+            cases, it can be vulnerable to classic cryptographic authentication attacks.</p>
+    
+    <h2 id="substitution-attacks">Substitution attacks</h2>
+    <p>As explained in <a class="c9" href="#theory">Pointer
+                Authentication theory</a>, ideally, each individual pointer use case should have
+            a completely unique signing scheme associated with it. But in practice, signing schemes repeat themselves
+            and are not always unique (due to various limitations and practical considerations).</p>
+    
+    <p>This attack substitutes a signed pointer intended for one use case with a signed
+            pointer intended for another use case. If both pointers were signed using the same signing scheme, and that
+            scheme doesn&rsquo;t use adequate diversification (of inputs), the overwritten pointer could be successfully
+            authenticated.</p>
+    
+    <p>A simple example for this attack is replacing a signed pointer in a vtable with a
+            signed pointer from a different vtable. If both pointers were signed using the signing scheme, the
+            substitution could succeed.</p>
+    
+    <h2 id="signing-oracles">Signing/conversion oracles</h2>
+    <p>A signing oracle is a piece of code which takes a pointer and signs it using a
+            specific signing scheme, in such a way that can be recovered later (stores the signed pointer to memory /
+            returns it to the caller / &hellip;). Such oracles can be useful for attackers, assuming they are able to execute them
+            accordingly.</p>
+    
+    <p>A conversion oracle is a piece of code which takes a pointer signed in a specific
+            signing scheme, authenticates it, and signs it using a different signing scheme, in such a way that can be
+            recovered later. Such oracles can be useful for attackers, assuming they are able to execute them
+            accordingly.</p>
+    
+    <h2 id="auth-oracles">Authentication oracles</h2>
+    <p>An authentication oracle is a piece of code which takes a pointer and checks if it is
+            validly signed in a specific signing scheme, and reports the result without faulting. Such oracles can be used to brute force tag values for a pointer, eventually reaching
+            the valid tag.</p>
+    
+    <h1 id="vulnerabilities">Real vulnerabilities examples</h1>
+    <h2 id="pacman">PACMAN</h2>
+    <p>PACMAN is a hardware-level Pointer Authentication bypass discovered in 2022 by
+            researchers at MIT. It affects Apple&rsquo;s M1 processors (and potentially other ARM-based chips).</p>
+    
+    <p>The PACMAN vulnerability essentially finds a way to access an authentication oracle
+            via a hardware side channel attack. It does this by leveraging speculative execution, a common CPU
+            performance-enhancing feature where the processor guesses what instructions are coming next and executes
+            them in advance.</p>
+    
+    <p>For more technical details about the PACMAN vulnerability, you can view the official
+            website which contains a link to the original paper and a video of a DEFCON talk <a class="c9"
+                    href="https://pacmanattack.com/">https://pacmanattack.com/</a></p>
+    
+    <h2 id="cve-2025">CVE-2025-31201</h2>
+    <p>CVE-2025-31201 was a Pointer Authentication bypass in Apple&#39;s libRPAC.dylib (a
+            small library used for performance/thread checking in Xcode and some system components).</p>
+    
+    <p>The library &quot;swizzled&quot; (hooked) some Objective-C methods and stored the
+            original function pointers in writable memory (__DATA.__common section). These pointers were signed with the
+            key IA, with the context value 0 - the exact same signing scheme used for interposed symbols in the
+            read-only part of the binary. An attacker who already had arbitrary read and write could simply overwrite
+            one of those stored original pointers with the address of any interposed symbol (which has a valid
+            signature). When the swizzled method was later called, it executed the interposed symbol instead. This is a
+            substitution attack.</p>
+    
+    <p>One such useful interposed symbol is dlsym, which lets the attacker get signed
+            pointers to any exported function in any library.</p>
+    
+    <p>For more technical details about this vulnerability, you can read the
+            following <a class="c9"
+                    href="https://blog.epsilon-sec.com/cve-2025-31201-rpac.html#the-substitution-attack">https://blog.epsilon-sec.com/cve-2025-31201-rpac.html#the-substitution-attack</a> <a class="c9"
+                    href="https://www.wiz.io/vulnerability-database/cve/cve-2025-31201">https://www.wiz.io/vulnerability-database/cve/cve-2025-31201</a></p>
+    
+    <h2 id="misc">Misc</h2>
+    <p>Other vulnerabilities and flaws related to Pointer Authentication</p>
+    <p><a class="c9" href="https://project-zero.issues.chromium.org/issues/42451026">https://project-zero.issues.chromium.org/issues/42451026</a></p>
+    <p><a class="c9" href="https://project-zero.issues.chromium.org/issues/42451146">https://project-zero.issues.chromium.org/issues/42451146</a></p>
+    <p><a class="c9" href="https://project-zero.issues.chromium.org/issues/42451144">https://project-zero.issues.chromium.org/issues/42451144</a></p>
+    
+    <h1 id="summary">Summary</h1>
+    <p>Pointer Authentication provides a powerful mechanism for cryptographically verifying
+            the integrity and authenticity of pointers at runtime, significantly raising the bar for memory corruption
+             exploits that rely on pointer manipulation. Pointer Authentication effectively prevents attackers from
+            forging, substituting, or repurposing pointers without detection, even in the presence of memory read/write
+            primitives.</p>
+    
+    <h1 id="challenges">Pointer Authentication practice challenges</h1>
+    <p>In <a class="c9"
+                href="https://researchlabs.tech/">researchlabs.tech</a>, there are 4 challenges (pwn-like style) in which you need to bypass Pointer
+            Authentication:</p>
+    <ul>
+        <li>&#1471;&ldquo;next_gen_auth&rdquo;</li>
+        <li>&ldquo;next_gen_auth_2&rdquo;</li>
+        <li>&ldquo;next_gen_auth_3&rdquo;</li>
+        <li>&ldquo;fun_land&rdquo;</li>
+    </ul>
+    
+    <h1 id="related-sources">Related sources</h1>
+    <p><a class="c9" href="https://researchlabs.tech">https://researchlabs.tech</a>. Platform for practicing technological research.</p>
+    <p><a class="c9" href="https://llvm.org/docs/PointerAuth.html">https://llvm.org/docs/PointerAuth.html</a></p>
+    <p><a class="c9" href="https://clang.llvm.org/docs/PointerAuthentication.html">https://clang.llvm.org/docs/PointerAuthentication.html</a>. Official technical documentation detailing the compiler-level implementation, instrumentation, and ABI for ARMv8.3-A Pointer Authentication in llvm.</p>
+    <p><a class="c9" href="https://projectzero.google/2019/02/examining-pointer-authentication-on.html">https://projectzero.google/2019/02/examining-pointer-authentication-on.html</a>. projectzero.google: Brandon Azad&rsquo;s deep-dive analysis of Apple's A12 ARMv8.3 PAC implementation and a demonstration of forging kernel signatures via memory corruption.</p>
+    <p><a class="c9" href="https://github.com/pointer-authentication">https://github.com/pointer-authentication</a>. A community-driven collection of open-source tools and proof-of-concept exploits for testing and bypassing Pointer Authentication.</p>
+    <p><a class="c9" href="http://events17.linuxfoundation.org/sites/events/files/slides/slides_23.pdf">http://events17.linuxfoundation.org/sites/events/files/slides/slides_23.pdf</a></p>
+    <p><a class="c9" href="https://www.qualcomm.com/content/dam/qcomm-martech/dm-assets/documents/pointer-auth-v7.pdf">https://www.qualcomm.com/content/dam/qcomm-martech/dm-assets/documents/pointer-auth-v7.pdf</a></p>
+    <p><a class="c9" href="https://www.usenix.org/system/files/sec19fall_liljestrand_prepub.pdf">https://www.usenix.org/system/files/sec19fall_liljestrand_prepub.pdf</a>. Papers about Pointer Authentication</p>
+    <p><a class="c9" href="https://learn.arm.com/learning-paths/servers-and-cloud-computing/pac/">https://learn.arm.com/learning-paths/servers-and-cloud-computing/pac/</a>. An official ARM educational guide covering the architectural fundamentals and practical deployment of PAC in ARM.</p>
+    <p><a class="c9" href="https://en.wikipedia.org/wiki/QARMA">https://en.wikipedia.org/wiki/QARMA</a></p>
+    <p><a class="c9" href="https://eprint.iacr.org/2016/444.pdf">https://eprint.iacr.org/2016/444.pdf</a>. Papers and explanations about the QARMA block cipher family.</p>
+    <p><a class="c9" href="https://github.com/Phantom1003/QARMA64">https://github.com/Phantom1003/QARMA64</a>. Implementation of QARMA in C.</p>
+    <p><a class="c9" href="https://pacmanattack.com/">https://pacmanattack.com/</a>. The PACMAN attack</p>
+    <p><a class="c9" href="https://projectzero.google/">https://projectzero.google/</a></p>
+    <p><a class="c9" href="https://project-zero.issues.chromium.org/issues">https://project-zero.issues.chromium.org/issues</a>. Google project zero and Google project zero issues</p>
+</body>
+</html>
